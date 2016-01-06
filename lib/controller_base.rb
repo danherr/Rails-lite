@@ -2,6 +2,7 @@ require 'active_support'
 require 'active_support/core_ext'
 require 'erb'
 require_relative './session'
+require_relative './flash'
 require 'byebug'
 
 class ControllerBase
@@ -21,35 +22,29 @@ class ControllerBase
 
   # Set the response status code and header
   def redirect_to(url)
-    raise "double render" if already_built_response?
+    ensure_no_rerender
 
     res.status = 302
     res['Location'] = url
 
-    session.store_session(res)
-
-    @already_built_response = true
+    save_cookies
   end
 
   # Populate the response with content.
   # Set the response's content type to the given type.
   # Raise an error if the developer tries to double render.
   def render_content(content, content_type)
-    raise "double render" if already_built_response?
+    ensure_no_rerender
 
     res.write(content)
     res['Content-Type'] = content_type
 
-    session.store_session(res)
-
-    @already_built_response = true
+    save_cookies
   end
 
   # use ERB and binding to evaluate templates
   # pass the rendered html to render_content
   def render(template_name)
-    raise "double render" if already_built_response?
-
     directory = self.class.name.underscore
     filename = "views/#{directory}/#{template_name}.html.erb"
 
@@ -57,14 +52,15 @@ class ControllerBase
     html = ERB.new(erb).result(binding)
 
     render_content(html, "text/html")
-
-
-    @already_built_response = true
   end
 
   # method exposing a `Session` object
   def session
     @session ||= Session.new(req)
+  end
+
+  def flash
+    @flash ||= Flash.new(req)
   end
 
   # use this with the router to call action_name (:index, :show, :create...)
@@ -74,5 +70,16 @@ class ControllerBase
     render name unless @already_built_response
   end
 
+  private
+
+  def ensure_no_rerender
+    raise "double render" if already_built_response?
+    @already_built_response = true
+  end
+
+  def save_cookies
+    session.store(res)
+    flash.store(res)
+  end
 
 end
